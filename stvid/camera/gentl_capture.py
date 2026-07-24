@@ -11,6 +11,7 @@ import time
 import cv2
 import numpy as np
 
+from .base import CameraTimeoutError
 from .gentl import GenTLCamera
 from .models import CameraConfig
 from .shared import SharedFrameBufferAllocation
@@ -18,6 +19,7 @@ from .shared import SharedFrameBufferAllocation
 
 def capture_gentl(
     image_queue,
+    free_buffer_queue,
     buffer_1: SharedFrameBufferAllocation,
     buffer_2: SharedFrameBufferAllocation,
     tend: float,
@@ -35,6 +37,11 @@ def capture_gentl(
 
     section = "GENTL"
     timeout_s = cfg.getfloat(section, "timeout_s", fallback=2.0)
+    timeout_retries = cfg.getint(
+        section,
+        "timeout_retries",
+        fallback=2,
+    )
 
     timestamp_frequency_hz = _optional_float(
         cfg,
@@ -97,62 +104,80 @@ def capture_gentl(
 
         camera.start()
 
-        while time.time() < tend:
-            _wait_for_output_capacity(image_queue, logger)
+        consecutive_timeouts = 0
 
+        while time.time() < tend:
+            buffer_number = free_buffer_queue.get()
+            active_index = buffer_number - 1
             view = views[active_index]
             view.reset()
 
-            for frame_index in range(view.image.shape[2]):
-                frame = camera.get_frame(timeout_s=timeout_s)
+            try:
+                for frame_index in range(view.image.shape[2]):
+                    while True:
+                        try:
+                            frame = camera.get_frame(
+                                timeout_s=timeout_s
+                            )
+                            consecutive_timeouts = 0
+                            break
+                        except CameraTimeoutError:
+                            consecutive_timeouts += 1
+                            logger.warning(
+                                "Camera timeout %d/%d",
+                                consecutive_timeouts,
+                                timeout_retries + 1,
+                            )
 
-                if not frame.complete:
-                    raise RuntimeError(
-                        "Received an incomplete GenTL frame"
+                            if consecutive_timeouts > timeout_retries:
+                                raise
+
+                    if not frame.complete:
+                        raise RuntimeError(
+                            "Received an incomplete GenTL frame"
+                        )
+
+                    image = frame.image
+
+                    if image.dtype != np.uint8:
+                        raise ValueError(
+                            "STVID GenTL acquisition currently requires "
+                            f"Mono8/uint8 data, not {image.dtype}"
+                        )
+
+                    host_wall_timestamp_ns = getattr(
+                        frame,
+                        "host_wall_timestamp_ns",
+                        None,
                     )
 
-                image = frame.image
+                    if host_wall_timestamp_ns is None:
+                        host_wall_timestamp_ns = time.time_ns()
 
-                if image.dtype != np.uint8:
-                    raise ValueError(
-                        "STVID GenTL acquisition currently requires "
-                        f"Mono8/uint8 data, not {image.dtype}"
+                    view.store_frame(
+                        frame_index,
+                        image,
+                        host_timestamp_ns=host_wall_timestamp_ns,
+                        camera_timestamp=frame.camera_timestamp,
+                        frame_id=frame.frame_id,
                     )
 
-                host_wall_timestamp_ns = getattr(
-                    frame,
-                    "host_wall_timestamp_ns",
-                    None,
+                    if live:
+                        cv2.imshow("Capture", image)
+                        cv2.waitKey(1)
+
+                view.validate_complete()
+                image_queue.put(buffer_number)
+                logger.debug(
+                    "Captured GenTL buffer %d (%dx%dx%d)",
+                    buffer_number,
+                    view.image.shape[1],
+                    view.image.shape[0],
+                    view.image.shape[2],
                 )
-
-                if host_wall_timestamp_ns is None:
-                    host_wall_timestamp_ns = time.time_ns()
-
-                view.store_frame(
-                    frame_index,
-                    image,
-                    host_timestamp_ns=host_wall_timestamp_ns,
-                    camera_timestamp=frame.camera_timestamp,
-                    frame_id=frame.frame_id,
-                )
-
-                if live:
-                    cv2.imshow("Capture", image)
-                    cv2.waitKey(1)
-
-            view.validate_complete()
-
-            buffer_number = active_index + 1
-            image_queue.put(buffer_number)
-            logger.debug(
-                "Captured GenTL buffer %d (%dx%dx%d)",
-                buffer_number,
-                view.image.shape[1],
-                view.image.shape[0],
-                view.image.shape[2],
-            )
-
-            active_index = 1 - active_index
+            except Exception:
+                free_buffer_queue.put(buffer_number)
+                raise
 
     except KeyboardInterrupt:
         reason = "Keyboard interrupt"
@@ -161,9 +186,22 @@ def capture_gentl(
         logger.exception("GenTL capture failed: %s", exc)
         raise
     finally:
-        if camera.is_acquiring:
-            camera.stop()
-        camera.close()
+        try:
+            if camera.is_acquiring:
+                camera.stop()
+        except Exception:
+            logger.exception(
+                "Could not stop GenTL acquisition cleanly"
+            )
+
+        try:
+            camera.close()
+        except Exception:
+            logger.exception(
+                "Could not close GenTL camera cleanly"
+            )
+
+        image_queue.put(None)
         logger.info("Capture: %s - Exiting", reason)
 
 
@@ -232,17 +270,6 @@ def _camera_config_from_ini(
         ),
     )
 
-
-def _wait_for_output_capacity(image_queue, logger) -> None:
-    warned = False
-
-    while image_queue.qsize() > 1:
-        if not warned:
-            logger.warning(
-                "Acquiring data faster than the CPU can process"
-            )
-            warned = True
-        time.sleep(0.1)
 
 
 def _optional_text(cfg, section: str, option: str) -> str | None:

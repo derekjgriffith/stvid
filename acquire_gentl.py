@@ -434,7 +434,7 @@ def capture_asi(image_queue, z1base, t1base, z2base, t2base, nx, ny, nz, tend, d
         camera.close()
 
 
-def compress(image_queue, z1base, t1base, z2base, t2base, nx, ny, nz, tend, path, device_id, conf_file, gentl_buffers=None):
+def compress(image_queue, z1base, t1base, z2base, t2base, nx, ny, nz, tend, path, device_id, conf_file, gentl_buffers=None, free_buffer_queue=None):
     """ compress: Aggregate nframes of observations into a single FITS file, with statistics.
 
         ImageHDU[0]: mean pixel value nframes         (zmax)
@@ -511,16 +511,17 @@ def compress(image_queue, z1base, t1base, z2base, t2base, nx, ny, nz, tend, path
                 with open(os.path.join(filepath, "position.txt"), "w") as fp:
                     fp.write(line)
 
-            # Wait for completed capture buffer to become available
-            while image_queue.empty():
-                time.sleep(0.1)
-                
-            # Get next buffer # from the work queue
+            # Get the next completed capture buffer.
             try:
                 proc_buffer = image_queue.get(timeout=60)
-            except:
+            except Exception:
                 logger.debug("Queue timed out")
                 break
+
+            if proc_buffer is None:
+                logger.info("Capture process has finished")
+                break
+
             logger.debug("Processing buffer %d" % proc_buffer)
 
             # Log start time
@@ -630,11 +631,14 @@ def compress(image_queue, z1base, t1base, z2base, t2base, nx, ny, nz, tend, path
             os.rename(os.path.join(filepath, ftemp), os.path.join(filepath, fname))
 
             logger.info("Compressed %s in %.2f sec" % (fname, time.time() - tstart))
+            logger.debug("Processed buffer %d" % proc_buffer)
+
+            if free_buffer_queue is not None:
+                free_buffer_queue.put(proc_buffer)
 
             # Exit on end of capture
             if t[-1] > tend:
                 break
-            logger.debug("Processed buffer %d" % proc_buffer)
             
 
     except KeyboardInterrupt:
@@ -798,6 +802,12 @@ if __name__ == '__main__':
         t2base = multiprocessing.Array(ctypes.c_double, nz)
 
     image_queue = multiprocessing.Queue()
+    free_buffer_queue = None
+
+    if camera_type == "GENTL":
+        free_buffer_queue = multiprocessing.Queue()
+        free_buffer_queue.put(1)
+        free_buffer_queue.put(2)
 
     # Set processes
     pcompress = multiprocessing.Process(
@@ -817,6 +827,7 @@ if __name__ == '__main__':
             device_id,
             conf_file,
             gentl_buffers,
+            free_buffer_queue,
         ),
     )
 
@@ -849,6 +860,7 @@ if __name__ == '__main__':
             name="capture_gentl",
             args=(
                 image_queue,
+                free_buffer_queue,
                 gentl_buffers[0],
                 gentl_buffers[1],
                 tend.unix,
