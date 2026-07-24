@@ -54,6 +54,9 @@ class GenTLCamera(Camera):
     serial_number
         Optional camera serial number. When supplied, it takes precedence over
         ``device_index``.
+    timestamp_frequency_hz
+        Optional timestamp-counter frequency override in hertz. When omitted,
+        the backend attempts to discover the value from common GenICam nodes.
     """
 
     def __init__(
@@ -62,6 +65,7 @@ class GenTLCamera(Camera):
         *,
         device_index: int = 0,
         serial_number: str | None = None,
+        timestamp_frequency_hz: float | None = None,
     ) -> None:
         if isinstance(device_index, bool) or not isinstance(device_index, int):
             raise TypeError("device_index must be an integer.")
@@ -75,6 +79,20 @@ class GenTLCamera(Camera):
             str(serial_number) if serial_number is not None else None
         )
 
+        if (
+            timestamp_frequency_hz is not None
+            and timestamp_frequency_hz <= 0
+        ):
+            raise ValueError(
+                "timestamp_frequency_hz must be greater than zero."
+            )
+
+        self._timestamp_frequency_override_hz = (
+            float(timestamp_frequency_hz)
+            if timestamp_frequency_hz is not None
+            else None
+        )
+
         self._harvester: Harvester | None = None
         self._image_acquirer: Any | None = None
         self._selected_device_index: int | None = None
@@ -83,6 +101,7 @@ class GenTLCamera(Camera):
         self._is_acquiring = False
 
         self._camera_timestamp_frequency_hz: float | None = None
+        self._camera_timestamp_frequency_source: str | None = None
         self._observed_frame_id = False
         self._observed_camera_timestamp = False
 
@@ -143,6 +162,18 @@ class GenTLCamera(Camera):
         return None
 
     @property
+    def camera_timestamp_frequency_hz(self) -> float | None:
+        """Return the active camera timestamp frequency in hertz."""
+
+        return self._camera_timestamp_frequency_hz
+
+    @property
+    def camera_timestamp_frequency_source(self) -> str | None:
+        """Return how the timestamp frequency was obtained."""
+
+        return self._camera_timestamp_frequency_source
+
+    @property
     def node_map(self) -> Any:
         """Return the remote GenICam node map for advanced access."""
 
@@ -188,9 +219,10 @@ class GenTLCamera(Camera):
             self._selected_device_index = selected_index
             self._is_open = True
 
-            self._camera_timestamp_frequency_hz = (
-                self._discover_timestamp_frequency()
-            )
+            (
+                self._camera_timestamp_frequency_hz,
+                self._camera_timestamp_frequency_source,
+            ) = self._discover_timestamp_frequency()
 
         except CameraError:
             self._destroy_resources(image_acquirer, harvester)
@@ -221,6 +253,7 @@ class GenTLCamera(Camera):
         self._is_open = False
         self._is_acquiring = False
         self._camera_timestamp_frequency_hz = None
+        self._camera_timestamp_frequency_source = None
 
         cleanup_error = self._destroy_resources(
             image_acquirer,
@@ -828,12 +861,27 @@ class GenTLCamera(Camera):
 
         return entries
 
-    def _discover_timestamp_frequency(self) -> float | None:
-        """Read a usable camera timestamp frequency, when exposed."""
+    def _discover_timestamp_frequency(
+        self,
+    ) -> tuple[float | None, str | None]:
+        """Return timestamp frequency and the source used to obtain it.
+
+        An explicit constructor/configuration value takes precedence. Without
+        an override, common GenICam node names are tried in order. If no
+        usable value is available, raw camera timestamps remain available as
+        ticks but cannot be converted to seconds by the backend.
+        """
+
+        if self._timestamp_frequency_override_hz is not None:
+            return (
+                self._timestamp_frequency_override_hz,
+                "configuration override",
+            )
 
         for name in (
             "GevTimestampTickFrequency",
             "TimestampTickFrequency",
+            "DeviceClockFrequency",
         ):
             value = self._read_optional_feature(name)
 
@@ -846,9 +894,9 @@ class GenTLCamera(Camera):
                 continue
 
             if frequency > 0:
-                return frequency
+                return frequency, f"GenICam node {name}"
 
-        return None
+        return None, None
 
     def _require_open(self) -> None:
         if not self._is_open or self._image_acquirer is None:
