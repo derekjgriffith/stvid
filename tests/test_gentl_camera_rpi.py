@@ -59,6 +59,40 @@ def optional_float(
     return None if text is None else float(text)
 
 
+def optional_timestamp_frequency_hz(
+    cfg: configparser.ConfigParser,
+    section: str,
+) -> float | None:
+    """Read an optional timestamp-frequency override.
+
+    Missing, blank, and ``auto`` all select GenICam discovery.
+    """
+
+    text = cfg.get(
+        section,
+        "timestamp_frequency_hz",
+        fallback="auto",
+    ).strip()
+
+    if not text or text.casefold() == "auto":
+        return None
+
+    try:
+        frequency_hz = float(text)
+    except ValueError as exc:
+        raise ValueError(
+            f"[{section}] timestamp_frequency_hz must be 'auto' "
+            f"or a positive number, not {text!r}."
+        ) from exc
+
+    if frequency_hz <= 0:
+        raise ValueError(
+            f"[{section}] timestamp_frequency_hz must be greater than zero."
+        )
+
+    return frequency_hz
+
+
 def read_configuration(path: Path) -> tuple[GenTLCamera, CameraConfig, int, float]:
     cfg = configparser.ConfigParser(
         inline_comment_prefixes=("#", ";")
@@ -79,6 +113,11 @@ def read_configuration(path: Path) -> tuple[GenTLCamera, CameraConfig, int, floa
 
     device_index = cfg.getint(SECTION, "device_id", fallback=0)
     serial_number = optional_text(cfg, SECTION, "serial_number")
+
+    timestamp_frequency_hz = optional_timestamp_frequency_hz(
+        cfg,
+        SECTION,
+    )
 
     # Prefer STVID's existing nx/ny naming. Width/height are accepted as
     # aliases to make the generic camera meaning clearer.
@@ -121,6 +160,7 @@ def read_configuration(path: Path) -> tuple[GenTLCamera, CameraConfig, int, floa
         cti_file=cti_file,
         device_index=device_index,
         serial_number=serial_number,
+        timestamp_frequency_hz=timestamp_frequency_hz,
     )
 
     return camera, config, frame_count, timeout_s
@@ -185,12 +225,39 @@ def main() -> int:
     frame_means: list[float] = []
     frame_ids: list[int] = []
     camera_timestamps: list[int] = []
+    active_timestamp_frequency_hz: float | None = None
 
     started_at = perf_counter()
 
     try:
         camera.open()
+
+        active_timestamp_frequency_hz = (
+            camera.camera_timestamp_frequency_hz
+        )
+
         describe_dataclass("Camera information", camera.get_info())
+
+        print("\nCamera timestamp clock")
+        print("----------------------")
+
+        if active_timestamp_frequency_hz is None:
+            print("frequency_hz                     : unavailable")
+            print("tick_period_ns                   : unavailable")
+            print("source                           : unavailable")
+        else:
+            print(
+                "frequency_hz                     : "
+                f"{active_timestamp_frequency_hz:.6f}"
+            )
+            print(
+                "tick_period_ns                   : "
+                f"{1e9 / active_timestamp_frequency_hz:.9f}"
+            )
+            print(
+                "source                           : "
+                f"{camera.camera_timestamp_frequency_source}"
+            )
         describe_dataclass(
             "Capabilities before acquisition",
             camera.get_capabilities(),
@@ -305,8 +372,8 @@ def main() -> int:
 
     if fetch_durations:
         fetch_us = [value / 1000 for value in fetch_durations]
-        print(f"Mean fetch duration         : {mean(fetch_us):.1f} us")
-        print(f"Maximum fetch duration      : {max(fetch_us):.1f} us")
+        print(f"Mean blocking fetch time    : {mean(fetch_us):.1f} us")
+        print(f"Maximum blocking fetch time : {max(fetch_us):.1f} us")
 
     print(f"Usable frame IDs            : {len(frame_ids)}/{frame_count}")
     print(
@@ -321,6 +388,47 @@ def main() -> int:
             if b != a + 1
         ]
         print(f"Frame-ID discontinuities    : {len(discontinuities)}")
+
+    if (
+        active_timestamp_frequency_hz is not None
+        and len(camera_timestamps) > 1
+    ):
+        camera_intervals_ms = [
+            (b - a) * 1000.0 / active_timestamp_frequency_hz
+            for a, b in zip(
+                camera_timestamps,
+                camera_timestamps[1:],
+            )
+        ]
+        timestamp_increments = [
+            b - a
+            for a, b in zip(
+                camera_timestamps,
+                camera_timestamps[1:],
+            )
+        ]
+
+        print(
+            "Mean camera frame interval  : "
+            f"{mean(camera_intervals_ms):.6f} ms"
+        )
+        print(
+            "Camera interval std. dev.   : "
+            f"{pstdev(camera_intervals_ms):.6f} ms"
+        )
+        print(
+            "Camera-derived frame rate   : "
+            f"{1000.0 / mean(camera_intervals_ms):.6f} fps"
+        )
+        print(
+            "Mean timestamp increment    : "
+            f"{mean(timestamp_increments):.3f} ticks"
+        )
+    else:
+        print(
+            "Camera-derived timing       : unavailable "
+            "(frequency or timestamps missing)"
+        )
 
     if args.save is not None:
         assert first_image is not None
