@@ -52,6 +52,33 @@ ny = 576                # Camera vertical pixel count
 nframes = 250           # Number of frames for each image
 software_bin = 1        # STVID software binning factor (1: 1x1, 2: 2x2 etc)
 
+[GENTL]                 # Genicam/GenTL camera producer
+cti_file = /opt/SVS/SVCamKit/SDK/Linux64_x64/cti/libsv_gev_tl_x64.cti  # GenTL camera producer
+
+device_id = 0           # Select camera by ID if multiple cameras are found by the producer
+serial_number =
+
+pixel_format = Mono8    # Mono12Packed or Mono12 could be available but not currently handled by STVID(?)
+acquisition_mode = Continuous
+trigger_mode = Off
+
+exposure_us = 10000     # Exposure time in microseconds
+framerate = 5.0         # Number of frames per second to capture
+gain = 0
+
+binning_horizontal = 1
+binning_vertical = 1
+
+nx =                    # Size of ROI in x-direction - defaults to full available sensor width
+ny =                    # Size of ROI in y-direction - defaults to full available sensor height
+offset_x = 0            # Start position of ROI in x
+offset_y = 0            # Start position of ROI in y
+
+test_frames = 20
+timeout_s = 2.0
+
+nframes = 10    # # Number of frames for each agrregated image
+
 [Elements]
 tlepath = /path/to
 tlefile1 = catalog.tle  # TLE File
