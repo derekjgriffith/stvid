@@ -549,22 +549,52 @@ def compress(image_queue, z1base, t1base, z2base, t2base, nx, ny, nz, tend, path
             t0 = Time(nfd, format="isot")
             dt = t - t[0]
 
-            # Cast to 32 bit float
-            z = z.astype("float32")
+            # Cast to 32 bit float - avoid doing this because of high memory demand
+            # z = z.astype("float32")
             
-            # Compute statistics
-            zmax = np.max(z, axis=2)
-            znum = np.argmax(z, axis=2)
-            zs1 = np.sum(z, axis=2) - zmax
-            zs2 = np.sum(z * z, axis=2) - zmax * zmax 
-            zavg = zs1 / float(nz - 1)
-            zstd = np.sqrt((zs2 - zs1 * zavg) / float(nz - 2))
+            # Compute statistics - original acquire.py method
+            # zmax = np.max(z, axis=2)
+            # znum = np.argmax(z, axis=2)
+            # zs1 = np.sum(z, axis=2) - zmax
+            # zs2 = np.sum(z * z, axis=2) - zmax * zmax 
+            # zavg = zs1 / float(nz - 1)
+            # zstd = np.sqrt((zs2 - zs1 * zavg) / float(nz - 2))
 
-            # Convert to float and flip
-            zmax = np.flipud(zmax.astype("float32"))
-            znum = np.flipud(znum.astype("float32"))
-            zavg = np.flipud(zavg.astype("float32"))
-            zstd = np.flipud(zstd.astype("float32"))
+            # Compute statistics with reduced peak memory demand.
+            zmax = np.zeros((ny, nx), dtype=np.float32)
+            znum = np.zeros((ny, nx), dtype=np.float32)
+            zs1 = np.zeros((ny, nx), dtype=np.float32)
+            zs2 = np.zeros((ny, nx), dtype=np.float32)
+
+            for frame_index in range(nz):
+                frame = z[:, :, frame_index].astype(np.float32)
+
+                if frame_index == 0:
+                    zmax[:] = frame
+                else:
+                    greater = frame > zmax
+                    zmax[greater] = frame[greater]
+                    znum[greater] = frame_index
+
+                zs1 += frame
+                zs2 += frame * frame
+
+            # Exclude the maximum-valued frame at each pixel.
+            zs1 -= zmax
+            zs2 -= zmax * zmax
+
+            zavg = zs1 / float(nz - 1)
+            variance = (zs2 - zs1 * zavg) / float(nz - 2)
+
+            # Protect against very small negative values from floating-point rounding.
+            np.maximum(variance, 0.0, out=variance)
+            zstd = np.sqrt(variance)
+
+            # Flip output images vertically.
+            zmax = np.flipud(zmax)
+            znum = np.flipud(znum)
+            zavg = np.flipud(zavg)
+            zstd = np.flipud(zstd)
 
             # Generate fits
             ftemp = "%s.temp" % nfd.replace(":", "-")
