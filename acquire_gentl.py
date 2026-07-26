@@ -560,6 +560,11 @@ def compress(image_queue, z1base, t1base, z2base, t2base, nx, ny, nz, tend, path
             # zavg = zs1 / float(nz - 1)
             # zstd = np.sqrt((zs2 - zs1 * zavg) / float(nz - 2))
 
+            # Log start time
+            tstart = time.time()   ######## For debugging
+
+            # Compute statistics
+            tstats_start = time.time()    ######## For debugging
             # Compute statistics with reduced peak memory demand.
             zmax = np.zeros((ny, nx), dtype=np.float32)
             znum = np.zeros((ny, nx), dtype=np.float32)
@@ -595,6 +600,8 @@ def compress(image_queue, z1base, t1base, z2base, t2base, nx, ny, nz, tend, path
             znum = np.flipud(znum)
             zavg = np.flipud(zavg)
             zstd = np.flipud(zstd)
+
+            tstats_end = time.time()   ############  for debugging long write times
 
             # Generate fits
             ftemp = "%s.temp" % nfd.replace(":", "-")
@@ -657,8 +664,27 @@ def compress(image_queue, z1base, t1base, z2base, t2base, nx, ny, nz, tend, path
             # Write fits file
             hdu = fits.PrimaryHDU(data=np.array([zavg, zstd, zmax, znum]),
                                   header=hdr)
+
+            thdu_end = time.time()   ###### for debugging long write times
+            
             hdu.writeto(os.path.join(filepath, ftemp))
+
+            twrite_end = time.time()  #########   for debugging long write times
+
             os.rename(os.path.join(filepath, ftemp), os.path.join(filepath, fname))
+
+            trename_end = time.time()     #### for debugging long write times
+
+            logger.info(                 ##### for debugging long write times
+                "Compressed %s in %.2f sec "
+                "[stats %.2f, HDU %.2f, write %.2f, rename %.2f]",
+                fname,
+                trename_end - tstart,
+                tstats_end - tstats_start,
+                thdu_end - tstats_end,
+                twrite_end - thdu_end,
+                trename_end - twrite_end,
+            )            
 
             logger.info("Compressed %s in %.2f sec" % (fname, time.time() - tstart))
             logger.debug("Processed buffer %d" % proc_buffer)
