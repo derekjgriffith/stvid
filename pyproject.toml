@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stvid"
+version = "0.0.0"
+description = "Satellite tools for video observations"
+readme = "README.md"
+requires-python = ">=3.9"
+
+dependencies = [
+    "astropy",
+    "numpy",
+    "opencv-python",
+    "scipy",
+    "matplotlib",
+    "termcolor",
+    "pyyaml",
+    "spacetrack",
+    "gpiozero>=2.0",
+    "readchar>=4.2.0",
+]
+
+[project.optional-dependencies]
+gentl = [
+    "harvesters",
+    "genicam",
+]
+
+zwo = [
+    "zwoasi",
+]
+
+all-cameras = [
+    "harvesters",
+    "genicam",
+    "zwoasi",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["stvid", "stvid.*"]
+exclude = ["tests", "tests.*", "img", "img.*", "data", "data.*"]
