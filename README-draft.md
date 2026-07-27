@@ -24,8 +24,9 @@ STVID currently supports the following camera interfaces:
 |---------|------------------|------|
 | CV2 | USB webcams, industrial cameras with OpenCV support | Generic OpenCV interface |
 | ASI | ZWO ASI cameras | Requires the ZWO SDK |
+| PI | Raspberry Pi Camera (legacy) | Uses the original picamera library (Bullseye and earlier) |
 | PI2 | Raspberry Pi Camera Module | Uses libcamera/Picamera2 |
-| GENTL | GenICam / GenTL compliant cameras | Tested with SVS-Vistek ECO814 |
+| GENTL | GenICam / GenTL compliant cameras | Tested with an SVS-Vistek GigE Vision camera |
 
 The camera backend is selected in `configuration.ini`.
 
