@@ -42,6 +42,8 @@ def capture_pi(image_queue, z1base, t1base, z2base, t2base, nx, ny, nz, tend, de
 
     cfg = configparser.ConfigParser(inline_comment_prefixes=("#", ";"))
     cfg.read(conf_file)
+
+    camera_type = "PI"
     
     from picamerax.array import PiRGBArray
     from picamerax import PiCamera
@@ -842,7 +844,7 @@ if __name__ == '__main__':
     # Initialize camera-specific shared buffers
     gentl_buffers = None
 
-    if camera_type == "GENTL":
+    if camera_type in ("GENTL", "PI2"):
         gentl_buffers = allocate_double_frame_buffer(
             width=nx,
             height=ny,
@@ -852,15 +854,21 @@ if __name__ == '__main__':
         z1base = t1base = z2base = t2base = None
     else:
         # Keep the established PI/CV2/ASI shared-memory layout unchanged.
-        z1base = multiprocessing.Array(ctypes.c_uint8, nx * ny * nz)
+        z1base = multiprocessing.Array(
+            ctypes.c_uint8,
+            nx * ny * nz,
+        )
         t1base = multiprocessing.Array(ctypes.c_double, nz)
-        z2base = multiprocessing.Array(ctypes.c_uint8, nx * ny * nz)
+        z2base = multiprocessing.Array(
+            ctypes.c_uint8,
+            nx * ny * nz,
+        )
         t2base = multiprocessing.Array(ctypes.c_double, nz)
 
     image_queue = multiprocessing.Queue()
     free_buffer_queue = None
 
-    if camera_type == "GENTL":
+    if camera_type in ("GENTL", "PI2"):
         free_buffer_queue = multiprocessing.Queue()
         free_buffer_queue.put(1)
         free_buffer_queue.put(2)
@@ -888,26 +896,82 @@ if __name__ == '__main__':
     )
 
     if camera_type == "PI":
-        pcapture = multiprocessing.Process(target=capture_pi,
-                                           name="capture_pi",
-                                           args=(image_queue,
-                                                 z1base, t1base, z2base, t2base,
-                                                 nx, ny, nz, tend.unix,
-                                                 device_id, live, conf_file))
+        pcapture = multiprocessing.Process(
+            target=capture_pi,
+            name="capture_pi",
+            args=(
+                image_queue,
+                z1base,
+                t1base,
+                z2base,
+                t2base,
+                nx,
+                ny,
+                nz,
+                tend.unix,
+                device_id,
+                live,
+                conf_file,
+            ),
+        )
+
     elif camera_type == "CV2":
-        pcapture = multiprocessing.Process(target=capture_cv2,
-                                           name="capture_cv2",
-                                           args=(image_queue,
-                                                 z1base, t1base, z2base, t2base,
-                                                 nx, ny, nz, tend.unix,
-                                                 device_id, live, conf_file))
+        pcapture = multiprocessing.Process(
+            target=capture_cv2,
+            name="capture_cv2",
+            args=(
+                image_queue,
+                z1base,
+                t1base,
+                z2base,
+                t2base,
+                nx,
+                ny,
+                nz,
+                tend.unix,
+                device_id,
+                live,
+                conf_file,
+            ),
+        )
+
     elif camera_type == "ASI":
-        pcapture = multiprocessing.Process(target=capture_asi,
-                                           name="capture_asi",
-                                           args=(image_queue,
-                                                 z1base, t1base, z2base, t2base,
-                                                 nx, ny, nz, tend.unix,
-                                                 device_id, live, conf_file))
+        pcapture = multiprocessing.Process(
+            target=capture_asi,
+            name="capture_asi",
+            args=(
+                image_queue,
+                z1base,
+                t1base,
+                z2base,
+                t2base,
+                nx,
+                ny,
+                nz,
+                tend.unix,
+                device_id,
+                live,
+                conf_file,
+            ),
+        )
+
+    elif camera_type == "PI2":
+        from stvid.camera.pi2_capture import capture_pi2
+
+        pcapture = multiprocessing.Process(
+            target=capture_pi2,
+            name="capture_pi2",
+            args=(
+                image_queue,
+                free_buffer_queue,
+                gentl_buffers[0],
+                gentl_buffers[1],
+                tend.unix,
+                live,
+                conf_file,
+            ),
+        )
+
     elif camera_type == "GENTL":
         from stvid.camera.gentl_capture import capture_gentl
 
@@ -924,8 +988,11 @@ if __name__ == '__main__':
                 conf_file,
             ),
         )
+
     else:
-        raise ValueError("Unsupported camera_type: %s" % camera_type)
+        raise ValueError(
+            "Unsupported camera_type: %s" % camera_type
+        )
 
     try:
         # Open shutter
