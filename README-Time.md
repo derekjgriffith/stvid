@@ -207,6 +207,39 @@ The script appends indefinitely and does not rotate the log. Use the operating
 system's normal log rotation or archival facilities if file growth becomes
 material.
 
+### Plotting trends
+
+The headless-safe analysis utility reads the JSONL log and creates three PNG
+figures under the Git-ignored `graphics/timecheck/` directory:
+
+```console
+python tools/timecheck_analysis.py timecheck.log
+```
+
+- `clock-offset.png` shows median signed offset, maximum absolute offset, and
+  the configured warning and critical thresholds.
+- `ntp-quality.png` shows network delay, offset jitter, and successful-query
+  percentage.
+- `check-status.png` shows status changes and check runtime.
+
+Matplotlib's non-interactive backend is used by default, so this works on a
+headless Raspberry Pi or Ubuntu host. On a desktop, add `--show` to display the
+figures after saving them:
+
+```console
+python tools/timecheck_analysis.py timecheck.log --show
+```
+
+Logs containing several hosts can be filtered, as can long time ranges:
+
+```console
+python tools/timecheck_analysis.py timecheck.log --host observatory-pi --days 30
+python tools/timecheck_analysis.py timecheck.log --output-dir /srv/stvid/time-plots
+```
+
+Malformed or partially written log lines are reported and skipped without
+discarding the remaining history.
+
 ## Scheduling regular checks
 
 Run checks often enough to reveal degradation before an observing session. A
@@ -329,4 +362,3 @@ describes common causes.
   assess the clock condition around each observing session.
 - Treat a sustained trend as more significant than one isolated Internet NTP
   sample.
-
