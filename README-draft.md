@@ -94,6 +94,16 @@ pixel format, exposure, frame rate, gain, image dimensions, and other camera
 properties in the same section. The supplied `configuration.ini-dist` contains
 an example based on an SVS-Vistek producer.
 
+To list every camera exposed by the configured producer without opening a
+camera or starting acquisition, run:
+
+```bash
+python tools/list_gentl_cameras.py -c configuration.ini
+```
+
+The camera selected by `serial_number` or `device_id` is marked with `*`.
+Use `--json` when machine-readable discovery output is required.
+
 #### Raspberry Pi cameras
 Use the `[PI]` section with `camera_type = PI` for the legacy Picamera backend,
 or the `[PI2]` section with `camera_type = PI2` for the libcamera/Picamera2
