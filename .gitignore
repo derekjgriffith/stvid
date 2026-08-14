@@ -7,3 +7,4 @@ settings.json
 
 # Configuration files
 *.ini
+timecheck.log
