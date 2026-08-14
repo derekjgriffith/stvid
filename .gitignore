@@ -8,3 +8,6 @@ settings.json
 # Configuration files
 *.ini
 timecheck.log
+
+# Generated diagnostic plots
+/graphics/
