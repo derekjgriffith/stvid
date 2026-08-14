@@ -12,6 +12,18 @@ alt_sunset = -6.0                 # Solar altitude at sunset
 alt_sunrise = -6.0                # Solar altitude at sunrise
 observations_path = /path/to/obs  # Path for raw acquisitions
 
+[Time]
+# Independent NTP checks. Separate multiple servers with commas. Each run
+# appends one JSON object to log_file; schedule timecheck.py with cron or a
+# systemd timer at the interval appropriate for the observing station.
+servers = pool.ntp.org
+samples = 3
+timeout_s = 2.0
+max_offset_ms = 100.0       # WARNING threshold (absolute median offset)
+critical_offset_ms = 1000.0 # CRITICAL threshold (absolute median offset)
+max_delay_ms = 500.0        # WARNING threshold (median round-trip delay)
+log_file = timecheck.log
+
 [Credentials]
 st-username = username        # Space-track.org username
 st-password = password        # Space-track.org password
@@ -52,7 +64,10 @@ ny = 576                # Camera vertical pixel count
 nframes = 250           # Number of frames for each image
 software_bin = 1        # STVID software binning factor (1: 1x1, 2: 2x2 etc)
 
-[GENTL]                 # Genicam/GenTL camera producer
+[GENTL]
+# GenICam/GenTL camera producer
+# The installation of the platform SDK from the camera manufacturer will commonly provide
+# one or more .cti files which provide the GenTL producer
 cti_file = /opt/SVS/SVCamKit/SDK/Linux64_x64/cti/libsv_gev_tl_x64.cti  # GenTL camera producer
 device_id = 0           # Select camera by ID if multiple cameras are found by the producer
 serial_number =
@@ -64,10 +79,10 @@ framerate = 5.0         # Number of frames per second to capture
 gain = 0
 binning_horizontal = 1  # On-camera pixel binning (could even be on-chip)
 binning_vertical = 1
-nx =                    # Size of image ROI in x-direction - defaults to full available sensor width
-ny =                    # Size of image ROI in y-direction - defaults to full available sensor height
-offset_x = 0            # Start position of ROI in x
-offset_y = 0            # Start position of ROI in y
+nx =                    # Provide number of columns in image
+ny =                    # Provide number of rows in image
+offset_x = 0            # Offset of ROI in x
+offset_y = 0            # Offset of ROI in y
 test_frames = 20
 timeout_s = 2.0
 nframes = 10            # Number of frames combined into each aggregated image
