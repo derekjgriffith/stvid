@@ -15,6 +15,7 @@ dependencies = [
     "opencv-python",
     "scipy",
     "matplotlib",
+    "openpyxl",
     "termcolor",
     "pyyaml",
     "spacetrack",

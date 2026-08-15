@@ -3,6 +3,7 @@ numpy
 opencv-python
 scipy
 matplotlib
+openpyxl
 termcolor
 zwoasi
 pyyaml
